@@ -129,21 +129,11 @@ export function getHackableServers(ns, path = "/data/servers.txt") {
 }
 
 export function getUsableServers(ns, path = "data/servers.txt") {
-	/* TODO - FILTER? */
-	var rootedServers = getRootedServers(ns, path)
-	var usableServers = []
 
-	for (var i = 0, len = rootedServers.length; i < len; i++) {
-
-		if (rootedServers[i].maxRam > 0) {
-
-			usableServers.push(rootedServers[i])
-
-		}
-
-	}
-
-	return usableServers
+	var servers = getRootedServers(ns, path)
+	servers = servers.filter(server => server.maxRam > 0)
+	servers.sort(function (a, b) {return a.maxRam - b.maxRam})
+	return servers
 
 }
 
@@ -198,6 +188,42 @@ export function hackCount(ns, target, percent = 50) {
 	
 }
 
+export function assignBots(ns, script, target, threads) {
+	/* FIX TO RETURN PID OR SCRIPT OBJECT */
+	var bots = getUsableServers(ns)
+	var processes = []
+	var scriptRam = ns.getScriptRam(script)
+	
+	bots = bots.filter(bot => (bot.hostname != "home"))
+	
+	for (var i = 0, len = bots.length; i < len) {
+		
+		var botThreads = Math.floor((bots[i].maxRam - bots[i].ramUsed) / scriptRam)
+		
+		if (botThreads > threads) {
+			
+			botThreads = threads
+			
+		}
+		
+		if (botThreads > 0) {
+			
+			ns.exec(script, bots[i].hostname, botThreads, target)
+			threads -= botThreds
+			assignedBots.push(bots[i])
+			
+		}
+		
+		if (threads = 0) {
+			
+			break
+			
+		}
+	}
+	
+	return assignedBots
+	
+}
 
 
 

@@ -1,6 +1,6 @@
 /** @param {NS} ns **/
 
-import { hackCount, growCount, weakenCount, getUsableServers } from "/lib/functions"
+import { hackCount, growCount, weakenCount, assignBots } from "/lib/functions"
 
 export async function main(ns) {
 	
@@ -8,10 +8,9 @@ export async function main(ns) {
 	var weakenThreads
 	var growThreads
 	var hackThreads
-	var botnetHosts = getUsableServers(ns)
+	var assignedBots = []
 	var home = ns.getServer("home"))
 	
-	start:
 	while (true) {
 		
 		target = ns.getServer(ns.args[0])
@@ -28,13 +27,30 @@ export async function main(ns) {
 				
 				while (ns.isRunning("/scripts/weaken.js", "home", weakenThreads, target.hostname)) {
 					
-					await ns.asleep(10000)
+					await ns.asleep(5000)
 					
 				}
-				continue start;
+
+			} else {
+				// WILL NEED TO BE MADE COMPATIBILE WITH planned changes to assignBots
+				weakenThreads = weakenCount(ns, target)
+				assignedBots = assignBots(ns, "/scripts/weaken.js", target.hostname, weakenThreads)
+				
+				for (var i = 0, len = assignedBots.len; i < len; i++) {
+					
+					while (ns.isRunning("/scripts/weaken.js", ))
+					
+				}
+				
 			}
 			
 		}
+		
+		/* while (target.moneyAvailable < (target.maxMoney * 0.9)) {
+			
+			growThreads = growCount(ns, target)
+			
+		} */
 		
 		await ns.asleep(1000)
 		
