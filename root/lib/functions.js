@@ -1,5 +1,7 @@
 /** @param {NS} ns **/
 
+import {RefServer} from "lib/classes.js"
+
 export function getRoot(ns, tarHostname) {
 
 	/* Opens all possible ports on hostname that is passed into the function, 
@@ -43,113 +45,123 @@ export function getRoot(ns, tarHostname) {
 }
 
 export async function scanServerData(ns, path = "/data/servers.txt") {
-
-	//TODO - CONVERT TO USE ARRAY.JOIN() - readServerData will need to be updated to conform
-	//TODO - CONVERT TO USE FILTERS?
-	/* Scan all servers, add names to servList if not yet present,
-	then write hostnames, 1 per line, to specified file. Default path is /data/servers.txt */
+	
+	/* 	Scan all servers, add names to servList if not yet present.
+		Convert the hostnames into RefServer objects, write to path using JSON.stringify*/
 
 	var servList = []	//List of unique hostnames
-
+	var playerServers = ns.getPurchasedServers().push("home") //contains hostnames of purchased servers and home
+	var servers = []	//Will hold final RefServers
+	var writeData 		//Will hold final data to write to file
 	servList = ns.scan() //scan host script is running on to start
 
 	// iterate through the list of servers, dynamically extending loop as new hostnames are added
-	for (let x = 0; x < servList.length; x++) {
+	for (let i = 0; i < servList.length; i++) {
 		//scan each hostname in turn
-		var latestScan = ns.scan(servList[x])
-		//iterate through hostnames returned from latest scan
-		for (let y = 0; y < latestScan.length; y++) {
-			//if hostname is not present in servList, add it to the end of the array
-			if (servList.includes(latestScan[y]) == false) {
-				servList.push(latestScan[y])
-			}
+		var latestScan = ns.scan(servList[i])
+		//filter scan result for names already in the list
+		latestScan = latestScan.filter(server => servList.includes(server) == false)
+		//merge the new hostnames into servList
+		servList.concat(latestScan)
+		
+	}
+	// servList now contains all hostnames, iterate through array to create RefServer objects
+	for (let i = 0, len = servList.length; i < len; i++) {
+		// create RefServer object for hostname
+		var newServ = new RefServer(ns, servList[i])
+		// check if home or purchased server, set player flag if true
+		if (playerServers.includes(newServ.hostname)) {
+			newServ.player = true
+		}		
+		//update number of cores if home
+		if (newServ.hostname == "home") {
+			newServ.cores = ns.getServer("home").cpuCores
 		}
+		//add to servers array
+		servers.push(newServ)
 	}
-	//clear file if it exists
-	ns.clear(path)
-	//iterate through list of servers, write hostname to file, then write newline character
-	for (let i in servList) {
-		await ns.write(path, servList[i], "a")
-		await ns.write(path, "\n", "a")
-	}
-	//final file is one hostname per line with an empty line at the end
-
+	//sort by required hack level by default
+	servers.sort(function (a, b) { return b.hackLevel - a.hackLevel })
+	//stringify servers array
+	writeData = JSON.stringify(servers)
+	//write stringified array to path, overwriting if file exists
+	await ns.write(path, writeData, "w")
+	
 }
 
 export function readServerData(ns, path = "/data/servers.txt") {
-	/* read file of server names, split at newline characters, remove last empty entry, 
-	return array of server objects */
-	var servers = ns.read(path)
 
-	servers = servers.split("\n")
-	servers.pop()
-
-	for (var i = 0; i < servers.length; i++) {
-
-		servers[i] = ns.getServer(servers[i])
-	}
-
+	//read path, use JSON.parse to convert back to RefServer array, return data
+	var servers = JSON.parse(ns.read(path))
 	return servers
+	
 }
 
 export function getRootedServers(ns, path = "/data/servers.txt") {
-	//TODO - FILTER?
-	
-	/* 	gets server objects from readServerData, adds all servers that you have root on to
-		a new array and returns that array*/
-	var allServers = readServerData(ns, path)
-	var roots = []
-
-	for (let i = 0, len = allServers.length; i < len; i++) {
-		if (allServers[i].hasAdminRights) {
-			roots.push(allServers[i])
-		}
-	}
+	/* 	Get RefServer objects from readServerData,
+		filter for servers with root*/
+	//Get server data from readServerData
+	var roots = readServerData(ns, path)
+	//filter servers for root access
+	roots = roots.filter(server => server.root)
+	//return array of server objects
 	return roots
+	
 }
 
 export function getHackableServers(ns, path = "/data/servers.txt") {
-	/* 	gets server objects from readServerData, sorts array in ascending order by required 
-		hacking skill, then reverses the array and returns it sorted in descending order*/
+	/* 	Gets rooted servers from getRootedServers, then filters out player servers 
+		and servers that exceed current hack level */
+	//get rooted servers from getRootedServers
 	var servers = getRootedServers(ns, path)
-	// create array of player servers
-	var excludes = ns.getPurchasedServers()
-	excludes.push("home")
 	//get player hacking skill
 	var hackSkill = ns.getHackingLevel()
-	//filter array for player owned servers
-	servers = servers.filter(server => (excludes.includes(server.hostname) == false))
+	//filter array to remove player owned servers
+	servers = servers.filter(server => (server.player == false))
 	//filter array for servers that are hackable at current skill
-	servers = servers.filter(server => (server.requiredHackingSkill < hackSkill))
-	//sort servers in order of descending hacking skill
-	servers.sort(function (a, b) { return b.requiredHackingSkill - a.requiredHackingSkill })
-
-	return servers //returns array of servers that are hackable at current skill, in descending order
-
-}
-
-export function getUsableServers(ns, path = "data/servers.txt") {
-
-	var servers = getRootedServers(ns, path)
-	servers = servers.filter(server => server.maxRam > 0)
-	servers.sort(function (a, b) {return a.maxRam - b.maxRam})
+	servers = servers.filter(server => (server.hackLevel < hackSkill))
+	//return servers
 	return servers
 
 }
 
+export function getUsableServers(ns, path = "/data/servers.txt") {
+	/*	Provides list of serves that can be used to run scripts.
+		Gets rooted servers from getRootedServers, filters for servers with 0 RAM,
+		then sorts by maxRam in ascending order */
+	//get rooted servers
+	var servers = getRootedServers(ns, path)
+	//filter to remove servers with 0 RAM
+	servers = servers.filter(server => server.maxRam > 0)
+	//sort by max RAM in ascending order
+	servers.sort(function (a, b) {return a.maxRam - b.maxRam})
+	//return sorted list
+	return servers
+
+}
+
+export function getServerByName(ns, hostname, path = "/data/servers.txt") {
+	
+	return readServerData(ns, path).find(server => server.hostname = hostname)
+	
+}
+
 export function weakenCount(ns, target, home = false) {
-	
-	var threads
-	
-	
+	/*	Calculates number of threads required to reduce target server to minimum security.
+		Flag available to calculate threads based on number of cores on home*/
+		var threads 
+	// if home flag is set, calculate for running on home
 	if (home) {
-		
-		var w1 = ns.weakenAnalyze(1, ns.getServer("home").cpuCores)
-		threads = Math.ceil((target.hackDifficulty - target.minDifficulty) / w1)
+		//get home refServer from getUsableServers
+		var homeServ = getUsableServers(ns).find(server => server.hostname = "home")
+		//calculate weaken value of one thread
+		var w1 = ns.weakenAnalyze(1, homeServ.cores)
+		//determine number of threads to reduce target to the minimum security level
+		threads = Math.ceil((target.getCurSecLevel(ns) - target.minSecLevel) / w1)
 		
 	} else {
-		
-		threads = Math.ceil((target.hackDifficulty - target.minDifficulty) / 0.05)
+		//determine required threads using base weaken value
+		threads = Math.ceil((target.getCurSecLevel(ns) - target.minSecLevel) / 0.05)
 		
 	}
 	
@@ -160,14 +172,15 @@ export function weakenCount(ns, target, home = false) {
 export function growCount(ns, target, home = false) {
 	
 	var threads
-	var tarServer = ns.getServer(target)
 	var growMult
-	
-	growMult = tarServer.moneyMax / tarServer.moneyAvailable
+	//get home refServer from getUsableServers
+	var homeServ = getHome(ns)
+	//determine how much money needs to grow to hit maximum
+	growMult = target.maxMoney / target.getCurMoney(ns)
 	
 	if (home) {
 		
-		threads = Math.ceil(ns.growthAnalyze(target, growMult, ns.getServer("home").cpuCores))
+		threads = Math.ceil(ns.growthAnalyze(target, growMult, homeServ.cores))
 		
 	} else {
 		
@@ -179,9 +192,9 @@ export function growCount(ns, target, home = false) {
 	
 }
 
-export function hackCount(ns, target, percent = 50) {
+export function hackCount(ns, target, percent = 30) {
 	
-	var h1 = ns.hackAnalyze(target) * 100
+	var h1 = ns.hackAnalyze(target.hostname) * 100
 	var threads = Math.floor(percent / h1)
 	
 	return threads
@@ -189,39 +202,49 @@ export function hackCount(ns, target, percent = 50) {
 }
 
 export function assignBots(ns, script, target, threads) {
-	/* FIX TO RETURN PID OR SCRIPT OBJECT */
+	/* 	Assign threads to usable servers and return the information of the
+		started scripts*/
+	//get servers that can run scripts
 	var bots = getUsableServers(ns)
-	var processes = []
+	var processInfo = [] // will hold process info to be returned
+	//get script ram
 	var scriptRam = ns.getScriptRam(script)
-	
+	//remove home from bots (this is used to assign to non home hosts)
 	bots = bots.filter(bot => (bot.hostname != "home"))
-	
+	//start at top of list (least ram)
 	for (var i = 0, len = bots.length; i < len) {
-		
-		var botThreads = Math.floor((bots[i].maxRam - bots[i].ramUsed) / scriptRam)
-		
+		// figure out how many threads the host can run
+		var botThreads = Math.floor(bots[i].getFreeRam(ns) / scriptRam)
+		//if the number of threads the host can run is more than the amount requested, make it the amount requested
 		if (botThreads > threads) {
 			
 			botThreads = threads
 			
 		}
-		
+		//if more threads are needed
 		if (botThreads > 0) {
 			
-			ns.exec(script, bots[i].hostname, botThreads, target)
+			
+			//run script on host
+			var pid = ns.exec(script, bots[i].hostname, botThreads, target)
+			
+			if (pid > 0) {
+			//decrement threads based on number of threads started
 			threads -= botThreds
-			assignedBots.push(bots[i])
+			//add script details to the return value for tracking by calling script
+			processInfo.push([script, bots[i].hostname, botThreads, target)
+			}
 			
 		}
-		
+		//if no more threads are required, break loop
 		if (threads = 0) {
 			
 			break
 			
 		}
 	}
-	
-	return assignedBots
+	//return process info
+	return processInfo
 	
 }
 

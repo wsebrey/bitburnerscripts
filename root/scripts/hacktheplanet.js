@@ -1,5 +1,5 @@
 /** @param {NS} ns **/
-
+//TODO - update for use with new readServerData format
 import { getRoot, readServerData, scanServerData } from "/lib/functions"
 
 export async function main(ns) {
