@@ -32,11 +32,11 @@ export async function main(ns) {
 
 		var rooted = false
 
-		if ((portsAvail >= servers[i][2]) && (servers[i][1] == "false")) {
-			rooted = getRoot(ns, servers[i][0])
+		if ((portsAvail >= servers[i].openPortsRequired) && (servers[i].root == "false")) {
+			rooted = getRoot(ns, servers[i].hostname)
 
 			if (rooted) {
-				ns.tprintf(servers[i][0])
+				ns.tprintf(servers[i].hostname)
 			}
 		}
 	}

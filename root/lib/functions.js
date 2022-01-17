@@ -1,6 +1,6 @@
 /** @param {NS} ns **/
 
-import {RefServer} from "lib/classes.js"
+import { RefServer } from "/lib/classes.js"
 
 export function getRoot(ns, tarHostname) {
 
@@ -45,7 +45,7 @@ export function getRoot(ns, tarHostname) {
 }
 
 export async function scanServerData(ns, path = "/data/servers.txt") {
-	
+
 	/* 	Scan all servers, add names to servList if not yet present.
 		Convert the hostnames into RefServer objects, write to path using JSON.stringify*/
 
@@ -63,7 +63,7 @@ export async function scanServerData(ns, path = "/data/servers.txt") {
 		latestScan = latestScan.filter(server => servList.includes(server) == false)
 		//merge the new hostnames into servList
 		servList.concat(latestScan)
-		
+
 	}
 	// servList now contains all hostnames, iterate through array to create RefServer objects
 	for (let i = 0, len = servList.length; i < len; i++) {
@@ -72,7 +72,7 @@ export async function scanServerData(ns, path = "/data/servers.txt") {
 		// check if home or purchased server, set player flag if true
 		if (playerServers.includes(newServ.hostname)) {
 			newServ.player = true
-		}		
+		}
 		//update number of cores if home
 		if (newServ.hostname == "home") {
 			newServ.cores = ns.getServer("home").cpuCores
@@ -86,7 +86,7 @@ export async function scanServerData(ns, path = "/data/servers.txt") {
 	writeData = JSON.stringify(servers)
 	//write stringified array to path, overwriting if file exists
 	await ns.write(path, writeData, "w")
-	
+
 }
 
 export function readServerData(ns, path = "/data/servers.txt") {
@@ -94,7 +94,7 @@ export function readServerData(ns, path = "/data/servers.txt") {
 	//read path, use JSON.parse to convert back to RefServer array, return data
 	var servers = JSON.parse(ns.read(path))
 	return servers
-	
+
 }
 
 export function getRootedServers(ns, path = "/data/servers.txt") {
@@ -106,7 +106,7 @@ export function getRootedServers(ns, path = "/data/servers.txt") {
 	roots = roots.filter(server => server.root)
 	//return array of server objects
 	return roots
-	
+
 }
 
 export function getHackableServers(ns, path = "/data/servers.txt") {
@@ -118,6 +118,8 @@ export function getHackableServers(ns, path = "/data/servers.txt") {
 	var hackSkill = ns.getHackingLevel()
 	//filter array to remove player owned servers
 	servers = servers.filter(server => (server.player == false))
+	//filter array to remove servers with no money to steal
+	servers = servers.filter(server => (server.maxMoney > 0))
 	//filter array for servers that are hackable at current skill
 	servers = servers.filter(server => (server.hackLevel < hackSkill))
 	//return servers
@@ -132,140 +134,122 @@ export function getUsableServers(ns, path = "/data/servers.txt") {
 	//get rooted servers
 	var servers = getRootedServers(ns, path)
 	//filter to remove servers with 0 RAM
-	servers = servers.filter(server => server.maxRam > 0)
+	servers = servers.filter(server => server.maxRam >= 2)
 	//sort by max RAM in ascending order
-	servers.sort(function (a, b) {return a.maxRam - b.maxRam})
+	servers.sort(function (a, b) { return a.maxRam - b.maxRam })
 	//return sorted list
 	return servers
 
 }
 
 export function getServerByName(ns, hostname, path = "/data/servers.txt") {
-	
-	return readServerData(ns, path).find(server => server.hostname = hostname)
-	
+
+	return readServerData(ns, path).find(server => server.hostname == hostname)
+
 }
 
 export function weakenCount(ns, target, home = false) {
 	/*	Calculates number of threads required to reduce target server to minimum security.
 		Flag available to calculate threads based on number of cores on home*/
-		var threads 
+	var threads
 	// if home flag is set, calculate for running on home
 	if (home) {
 		//get home refServer from getUsableServers
-		var homeServ = getUsableServers(ns).find(server => server.hostname = "home")
+		var homeServ = getServerByName(ns, "home", "/data/servers.txt")
 		//calculate weaken value of one thread
 		var w1 = ns.weakenAnalyze(1, homeServ.cores)
 		//determine number of threads to reduce target to the minimum security level
-		threads = Math.ceil((target.getCurSecLevel(ns) - target.minSecLevel) / w1)
-		
+		threads = Math.ceil((ns.getServerSecurityLevel(target.hostname) - target.minSecLevel) / w1)
+
 	} else {
 		//determine required threads using base weaken value
-		threads = Math.ceil((target.getCurSecLevel(ns) - target.minSecLevel) / 0.05)
-		
+		threads = Math.ceil((ns.getServerSecurityLevel(target.hostname) - target.minSecLevel) / 0.05)
+
 	}
-	
+
 	return threads
-	
+
 }
 
 export function growCount(ns, target, home = false) {
-	
+
 	var threads
 	var growMult
 	//get home refServer from getUsableServers
-	var homeServ = getHome(ns)
+	var homeServ = getServerByName(ns, "home", "/data/servers.txt")
 	//determine how much money needs to grow to hit maximum
-	growMult = target.maxMoney / target.getCurMoney(ns)
-	
+	growMult = target.maxMoney / ns.getServerMoneyAvailable(target.hostname)
+
 	if (home) {
-		
-		threads = Math.ceil(ns.growthAnalyze(target, growMult, homeServ.cores))
-		
+
+		threads = Math.ceil(ns.growthAnalyze(target.hostname, growMult, homeServ.cores))
+
 	} else {
-		
-		threads = Math.ceil(ns.growthAnalyze(target, growMult))
-		
+
+		threads = Math.ceil(ns.growthAnalyze(target.hostname, growMult))
+
 	}
-	
+
 	return threads
-	
+
 }
 
 export function hackCount(ns, target, percent = 30) {
-	
+
 	var h1 = ns.hackAnalyze(target.hostname) * 100
 	var threads = Math.floor(percent / h1)
-	
 	return threads
-	
+
 }
 
 export function assignBots(ns, script, target, threads) {
 	/* 	Assign threads to usable servers and return the information of the
 		started scripts*/
 	//get servers that can run scripts
-	var bots = getUsableServers(ns)
+	var bots = getUsableServers(ns, "/data/servers.txt")
 	var processInfo = [] // will hold process info to be returned
 	//get script ram
 	var scriptRam = ns.getScriptRam(script)
 	//remove home from bots (this is used to assign to non home hosts)
 	bots = bots.filter(bot => (bot.hostname != "home"))
 	//start at top of list (least ram)
-	for (var i = 0, len = bots.length; i < len) {
+	for (var i = 0, len = bots.length; i < len; i++) {
 		// figure out how many threads the host can run
-		var botThreads = Math.floor(bots[i].getFreeRam(ns) / scriptRam)
+		var botThreads = Math.floor(((bots[i].maxRam - ns.getServerUsedRam(bots[i].hostname)) / scriptRam))
 		//if the number of threads the host can run is more than the amount requested, make it the amount requested
 		if (botThreads > threads) {
-			
+
 			botThreads = threads
-			
+
 		}
 		//if more threads are needed
 		if (botThreads > 0) {
-			
-			
+
+
 			//run script on host
 			var pid = ns.exec(script, bots[i].hostname, botThreads, target)
-			
 			if (pid > 0) {
-			//decrement threads based on number of threads started
-			threads -= botThreds
-			//add script details to the return value for tracking by calling script
-			processInfo.push([script, bots[i].hostname, botThreads, target)
+				//decrement threads based on number of threads started
+				threads -= botThreads
+				//add script details to the return value for tracking by calling script
+				processInfo.push([script, bots[i].hostname, botThreads, target])
 			}
-			
+
 		}
 		//if no more threads are required, break loop
-		if (threads = 0) {
-			
+		if (threads == 0) {
+
 			break
-			
+
 		}
 	}
 	//return process info
 	return processInfo
-	
+
 }
 
+export async function botSetup(ns, target) {
+	var botFiles = ["/scripts/hack.js", "/scripts/weaken.js", "/scripts/grow.js"]
+	await ns.scp(botFiles, target)
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+}
